@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import gradio as gr
@@ -29,28 +28,13 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
 def extract_state_dict(checkpoint):
-    """
-    Supports common PyTorch checkpoint formats:
-    - raw state_dict
-    - {"state_dict": ...}
-    - {"model_state_dict": ...}
-    - {"model": ...}
-    """
     if isinstance(checkpoint, torch.nn.Module):
         return checkpoint
 
     if not isinstance(checkpoint, dict):
         raise ValueError("Unsupported checkpoint format.")
 
-    possible_keys = [
-        "state_dict",
-        "model_state_dict",
-        "model",
-        "net",
-        "weights",
-    ]
-
-    for key in possible_keys:
+    for key in ["state_dict", "model_state_dict", "model", "net", "weights"]:
         if key in checkpoint:
             value = checkpoint[key]
             if isinstance(value, dict):
@@ -67,13 +51,7 @@ def clean_state_dict_keys(state_dict):
     for key, value in state_dict.items():
         new_key = key
 
-        prefixes = [
-            "module.",
-            "model.",
-            "net.",
-        ]
-
-        for prefix in prefixes:
+        for prefix in ["module.", "model.", "net."]:
             if new_key.startswith(prefix):
                 new_key = new_key[len(prefix):]
 
@@ -83,20 +61,10 @@ def clean_state_dict_keys(state_dict):
 
 
 def infer_num_classes(state_dict):
-    """
-    Try to infer number of classes from classifier head.
-    """
     if not isinstance(state_dict, dict):
         return len(CLASS_NAMES)
 
-    candidate_keys = [
-        "head.weight",
-        "head.fc.weight",
-        "classifier.weight",
-        "fc.weight",
-    ]
-
-    for key in candidate_keys:
+    for key in ["head.weight", "head.fc.weight", "classifier.weight", "fc.weight"]:
         if key in state_dict and hasattr(state_dict[key], "shape"):
             if len(state_dict[key].shape) == 2:
                 return int(state_dict[key].shape[0])
@@ -110,12 +78,11 @@ def infer_num_classes(state_dict):
 
 
 def build_model(num_classes):
-    model = timm.create_model(
+    return timm.create_model(
         "swin_base_patch4_window12_384",
         pretrained=False,
         num_classes=num_classes,
     )
-    return model
 
 
 def load_model():
@@ -174,8 +141,8 @@ def prepare_image(image):
     if not isinstance(image, Image.Image):
         image = Image.fromarray(image)
 
-    image = image.convert("RGB")
     image = ImageOps.exif_transpose(image)
+    image = image.convert("RGB")
     return image
 
 
@@ -191,14 +158,9 @@ def make_tta_images(image):
 @torch.inference_mode()
 def predict(image, use_tta=False):
     image = prepare_image(image)
-
     images = make_tta_images(image) if use_tta else [image]
 
-    tensors = []
-    for img in images:
-        tensor = preprocess(img)
-        tensors.append(tensor)
-
+    tensors = [preprocess(img) for img in images]
     batch = torch.stack(tensors).to(DEVICE)
 
     logits = model(batch)
@@ -212,19 +174,14 @@ def predict(image, use_tta=False):
     else:
         class_names = [f"class_{i}" for i in range(num_outputs)]
 
-    prob_dict = {
-        class_names[i]: float(avg_probs[i])
-        for i in range(num_outputs)
-    }
-
     best_idx = int(torch.argmax(avg_probs).item())
     best_label = class_names[best_idx]
     confidence = float(avg_probs[best_idx])
 
     if best_label == REAL_CLASS:
-        status = "✅ Real Face"
+        status = "Real Face"
     else:
-        status = "⚠️ Spoof Detected"
+        status = "Spoof Detected"
 
     status_text = (
         f"## {status}\n\n"
@@ -232,10 +189,21 @@ def predict(image, use_tta=False):
         f"**Confidence:** `{confidence:.2%}`"
     )
 
-    return status_text, prob_dict
+    sorted_probs = sorted(
+        [(class_names[i], float(avg_probs[i])) for i in range(num_outputs)],
+        key=lambda item: item[1],
+        reverse=True,
+    )
 
+    prob_lines = [
+        f"- `{label}`: **{score:.2%}**"
+        for label, score in sorted_probs
+    ]
 
-examples = []
+    prob_text = "## Class Probabilities\n\n" + "\n".join(prob_lines)
+
+    return status_text, prob_text
+
 
 demo = gr.Interface(
     fn=predict,
@@ -245,14 +213,14 @@ demo = gr.Interface(
     ],
     outputs=[
         gr.Markdown(label="Result"),
-        gr.Label(label="Class probabilities", num_top_classes=6),
+        gr.Markdown(label="Class probabilities"),
     ],
     title="Image Spoofing Detection",
     description=(
         "Upload a face image to classify whether it is a real face or a spoofing attempt. "
-        "The model predicts spoof categories such as printed image, screen replay, mask, mannequin, unknown spoof, or real person."
+        "The model predicts spoof categories such as printed image, screen replay, mask, "
+        "mannequin, unknown spoof, or real person."
     ),
-    examples=examples,
     allow_flagging="never",
 )
 
