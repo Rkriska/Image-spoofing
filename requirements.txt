@@ -3,4 +3,4 @@ torch
 torchvision
 timm
 Pillow
-pyaudioop
+audioop-lts; python_version >= '3.13'
