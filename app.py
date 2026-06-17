@@ -221,7 +221,6 @@ demo = gr.Interface(
         "The model predicts spoof categories such as printed image, screen replay, mask, "
         "mannequin, unknown spoof, or real person."
     ),
-    allow_flagging="never",
 )
 
 if __name__ == "__main__":
