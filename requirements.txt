@@ -1,5 +1,6 @@
-gradio
+gradio==4.44.1
 torch
 torchvision
 timm
-Pillowpyaudioop
+Pillow
+pyaudioop
